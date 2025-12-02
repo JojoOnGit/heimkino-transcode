@@ -60,9 +60,23 @@ app.get('/transcode', async (req, res) => {
 
     const inputStream = videoResponse.data;
     const contentLength = videoResponse.headers['content-length'];
+    const fileSizeMB = contentLength ? Math.round(contentLength / 1024 / 1024) : 0;
 
     console.log('✅ Video stream started');
-    console.log('   Size:', contentLength ? Math.round(contentLength / 1024 / 1024) + ' MB' : 'Unknown');
+    console.log('   Size:', fileSizeMB + ' MB');
+
+    // Reject files over 30GB - they're too large to transcode on Railway free tier
+    // These are typically BDRemux files that should be avoided anyway
+    if (fileSizeMB > 30000) {
+      console.error('❌ File too large for transcoding:', fileSizeMB, 'MB');
+      console.error('   Railway free tier cannot handle files over 30GB');
+      console.error('   Suggestion: Use WEB-DL/WEBRip torrents instead (they have AAC audio)');
+      return res.status(413).json({
+        error: 'File too large for transcoding',
+        size: fileSizeMB + ' MB',
+        message: 'This file is too large to transcode. Please try a different quality (WEB-DL recommended) or play directly without transcoding.'
+      });
+    }
 
     // Set response headers for streaming
     res.setHeader('Content-Type', 'video/mp4');
