@@ -1,0 +1,14 @@
+# Nixpacks configuration for Railway
+# Ensures FFmpeg is installed
+
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "ffmpeg-full"]
+
+[phases.install]
+cmds = ["npm ci"]
+
+[phases.build]
+cmds = ["echo 'No build step required'"]
+
+[start]
+cmd = "npm start"
