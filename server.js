@@ -192,6 +192,58 @@ app.get('/info', async (req, res) => {
   }
 });
 
+/**
+ * Torrentio proxy endpoint
+ * GET /torrentio/:imdbId
+ *
+ * Proxies Torrentio API requests to bypass Cloudflare blocking
+ * Firebase Functions IP addresses are blocked, but Railway is not
+ */
+app.get('/torrentio/:imdbId', async (req, res) => {
+  const { imdbId } = req.params;
+  const { type = 'movie' } = req.query;
+
+  if (!imdbId) {
+    return res.status(400).json({ error: 'Missing IMDb ID' });
+  }
+
+  console.log('🔍 Torrentio proxy request');
+  console.log('   IMDb ID:', imdbId);
+  console.log('   Type:', type);
+
+  try {
+    const torrentioUrl = `https://torrentio.strem.fun/stream/${type}/${imdbId}.json`;
+    console.log('   Fetching from:', torrentioUrl);
+
+    const response = await axios({
+      method: 'get',
+      url: torrentioUrl,
+      headers: {
+        'Accept': 'application/json',
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+      }
+    });
+
+    console.log('✅ Torrentio response received');
+    console.log('   Streams found:', response.data.streams?.length || 0);
+
+    res.json(response.data);
+  } catch (error) {
+    console.error('❌ Torrentio proxy error:', error.message);
+    if (error.response) {
+      console.error('   Status:', error.response.status);
+      console.error('   Data:', typeof error.response.data === 'string'
+        ? error.response.data.substring(0, 200)
+        : JSON.stringify(error.response.data).substring(0, 200));
+      return res.status(error.response.status).json({
+        error: 'Torrentio API error',
+        status: error.response.status
+      });
+    }
+    res.status(500).json({ error: 'Failed to fetch from Torrentio', message: error.message });
+  }
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log('========================================');
@@ -201,8 +253,9 @@ app.listen(PORT, () => {
   console.log(`📡 Health check: http://localhost:${PORT}/health`);
   console.log(`🔄 Transcode: http://localhost:${PORT}/transcode?url=<video_url>`);
   console.log(`ℹ️  Info: http://localhost:${PORT}/info?url=<video_url>`);
+  console.log(`🔍 Torrentio Proxy: http://localhost:${PORT}/torrentio/:imdbId`);
   console.log('========================================');
-  console.log('Waiting for transcode requests...');
+  console.log('Waiting for requests...');
 });
 
 // Graceful shutdown
