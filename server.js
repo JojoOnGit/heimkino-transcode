@@ -207,6 +207,96 @@ app.get('/info', async (req, res) => {
 });
 
 /**
+ * Audio-only remux endpoint
+ * GET /audio-remux?url=<video_url>
+ *
+ * Remuxes video to extract audio and convert to AAC (browser compatible)
+ * Keeps video stream as-is, only transcodes audio - much faster than full transcode
+ */
+app.get('/audio-remux', async (req, res) => {
+  const { url } = req.query;
+
+  if (!url) {
+    return res.status(400).json({ error: 'Missing url parameter' });
+  }
+
+  console.log('🎵 Audio remux request received');
+  console.log('   Source URL:', url.substring(0, 60) + '...');
+
+  try {
+    // Fetch the video from Real-Debrid
+    console.log('📥 Fetching video from Real-Debrid...');
+    const videoResponse = await axios({
+      method: 'get',
+      url: url,
+      responseType: 'stream',
+      headers: {
+        'User-Agent': 'Mozilla/5.0',
+      }
+    });
+
+    const inputStream = videoResponse.data;
+    const contentLength = videoResponse.headers['content-length'];
+    const fileSizeMB = contentLength ? Math.round(contentLength / 1024 / 1024) : 0;
+
+    console.log('✅ Video stream started');
+    console.log('   Size:', fileSizeMB + ' MB');
+
+    // Set response headers for streaming
+    res.setHeader('Content-Type', 'video/mp4');
+    res.setHeader('Accept-Ranges', 'bytes');
+    res.setHeader('Cache-Control', 'no-cache');
+
+    console.log('🔄 Starting audio remux (copy video, convert audio to AAC)...');
+    console.log('   This is much faster than full transcoding!');
+
+    // Remux: Copy video stream, only transcode audio to AAC
+    const ffmpegCommand = ffmpeg(inputStream)
+      .videoCodec('copy')         // Copy video as-is (no transcoding = FAST!)
+      .audioCodec('aac')          // Convert audio to AAC (browser compatible)
+      .audioBitrate('192k')       // Good quality AAC audio
+      .format('mp4')              // MP4 container
+      .outputOptions([
+        '-movflags frag_keyframe+empty_moov+faststart', // Enable streaming
+        '-avoid_negative_ts make_zero',  // Fix timestamp issues
+      ])
+      .on('start', (commandLine) => {
+        console.log('▶️  FFmpeg started (audio remux mode)');
+        console.log('   Command:', commandLine.substring(0, 100) + '...');
+      })
+      .on('progress', (progress) => {
+        if (progress.percent) {
+          console.log(`⏳ Progress: ${progress.percent.toFixed(1)}% | Time: ${progress.timemark}`);
+        }
+      })
+      .on('end', () => {
+        console.log('✅ Audio remux completed successfully');
+      })
+      .on('error', (err, stdout, stderr) => {
+        console.error('❌ FFmpeg error:', err.message);
+        if (stderr) {
+          console.error('FFmpeg stderr:', stderr.substring(0, 500));
+        }
+        if (!res.headersSent) {
+          res.status(500).json({ error: 'Audio remux failed', message: err.message });
+        }
+      });
+
+    // Pipe remuxed stream to response
+    ffmpegCommand.pipe(res, { end: true });
+
+  } catch (error) {
+    console.error('❌ Audio remux error:', error.message);
+    if (!res.headersSent) {
+      res.status(500).json({
+        error: 'Failed to remux audio',
+        message: error.message
+      });
+    }
+  }
+});
+
+/**
  * Torrentio proxy endpoint
  * GET /torrentio/:imdbId
  *
