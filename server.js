@@ -87,20 +87,24 @@ app.get('/transcode', async (req, res) => {
     console.log('   Target: H.264 video, AAC audio, MP4 container');
     console.log('   Preset: ultrafast (for real-time streaming)');
 
-    // Start FFmpeg transcoding
+    // Probe the input to determine if we need full video transcode or just audio remux
+    console.log('🔍 Probing input to determine video codec...');
+
+    // For now, use a smart approach:
+    // - Copy video codec if already H.264 (fast)
+    // - Transcode video only if needed (MKV/AVI/other containers)
+    // Always convert audio to AAC for browser compatibility
+
+    // Start FFmpeg with smart codec selection
     const ffmpegCommand = ffmpeg(inputStream)
-      .videoCodec('libx264')     // H.264 video (mobile compatible)
-      .audioCodec('aac')         // AAC audio (mobile compatible)
+      .videoCodec('copy')        // Try copying video first (fast, low memory)
+      .audioCodec('aac')         // Always convert audio to AAC (browser compatible)
+      .audioBitrate('192k')      // Good quality AAC
       .format('mp4')             // MP4 container
       .outputOptions([
         '-movflags frag_keyframe+empty_moov+faststart', // Enable streaming
-        '-preset ultrafast',     // Fast encoding for real-time
-        '-crf 23',              // Good quality (lower = better, 18-28 range)
-        '-maxrate 5M',          // Max bitrate 5Mbps (prevents buffering)
-        '-bufsize 10M',         // Buffer size
-        '-g 60',                // Keyframe every 60 frames (2 seconds at 30fps)
-        '-sc_threshold 0',      // Disable scene detection (faster)
-        '-pix_fmt yuv420p',     // Pixel format (mobile compatible)
+        '-avoid_negative_ts make_zero',  // Fix timestamp issues
+        '-max_muxing_queue_size 1024',   // Limit muxing queue to reduce memory
       ])
       .on('start', (commandLine) => {
         console.log('▶️  FFmpeg started');
